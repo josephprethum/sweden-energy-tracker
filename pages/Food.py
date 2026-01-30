@@ -1,17 +1,31 @@
 import streamlit as st
+import requests
 import pandas as pd
 
-st.title("🛒 Grocery Price Tracker")
+st.title("🛒 Dynamic Food Search")
 
-food_data = {
-    "Item": ["Mjölk (1.5L)", "Smör (500g)", "Pasta (1kg)"],
-    "Willys": [16.50, 48.90, 19.90],
-    "ICA": [17.90, 54.90, 22.50]
-}
+search_term = st.text_input("Search for a product (e.g., 'Mjölk' or 'Ost')")
 
-df = pd.DataFrame(food_data)
-search = st.text_input("Search items...")
-if search:
-    df = df[df["Item"].str.contains(search, case=False)]
-
-st.dataframe(df, use_container_width=True)
+if search_term:
+    # Open Food Facts API for Sweden
+    url = f"https://se.openfoodfacts.org/cgi/search.pl?search_terms={search_term}&action=process&json=1"
+    
+    try:
+        response = requests.get(url).json()
+        products = response.get('products', [])
+        
+        if products:
+            food_list = []
+            for p in products[:15]: # Limit to top 15 results
+                food_list.append({
+                    "Brand": p.get('brands', 'Unknown'),
+                    "Product": p.get('product_name', 'Unknown'),
+                    "Qty": p.get('quantity', 'N/A'),
+                    "Nutrition Grade": p.get('nutrition_grades', 'N/A').upper()
+                })
+            
+            st.dataframe(pd.DataFrame(food_list), use_container_width=True)
+        else:
+            st.write("No products found.")
+    except:
+        st.error("Could not connect to Food Database.")
