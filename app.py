@@ -1,77 +1,56 @@
 import streamlit as st
-import requests
 import pandas as pd
-from datetime import datetime
 
-# 1. Page Config
-st.set_page_config(page_title="Sweden Smart Dashboard 2026", layout="wide", page_icon="🇸🇪")
+# --- (Existing Energy Logic here) ---
 
-# 2. Sidebar (Shared settings)
-with st.sidebar:
-    st.header("📍 Region & Data")
-    region = st.selectbox("Electricity Area", ["SE1", "SE2", "SE3", "SE4"], index=2)
-    petrol_price = st.number_input("E10 Petrol (kr/L)", value=15.04)
-    st.divider()
-    st.write("Current Date:", datetime.now().strftime('%Y-%m-%d'))
-
-# 3. Define the Tabs
 tab_energy, tab_food = st.tabs(["⚡ Energy & Driving", "🛒 Grocery Tracker"])
 
-# --- TAB 1: ENERGY & COMPARISON ---
 with tab_energy:
-    st.header("Electricity vs. Petrol Comparison")
-    
-    # Fetch Live Data
-    date_path = datetime.now().strftime('%Y/%m-%d')
-    url = f"https://www.elprisetjustnu.se/api/v1/prices/{date_path}_{region}.json"
-    
-    try:
-        res = requests.get(url).json()
-        energy_list = []
-        for i in range(0, len(res), 4):
-            item = res[i]
-            el_kwh = item['SEK_per_kWh']
-            # Cost to drive 10km (Assuming 2kWh/mil for EV and 0.65L/mil for Petrol)
-            cost_ev = round(el_kwh * 2.0, 2)
-            cost_petrol = round(petrol_price * 0.65, 2)
-            
-            energy_list.append({
-                "Time": item['time_start'][11:16],
-                "El Price (kr/kWh)": round(el_kwh, 2),
-                "E10 Price (kr/L)": petrol_price,
-                "EV Cost/10km": f"{cost_ev} kr",
-                "Petrol Cost/10km": f"{cost_petrol} kr",
-                "Winner": "⚡ Electric" if cost_ev < cost_petrol else "⛽ Petrol"
-            })
-        
-        st.dataframe(pd.DataFrame(energy_list), use_container_width=True)
-    except:
-        st.error("Could not load live energy data. Check your connection.")
+    st.write("Your Energy code lives here...")
 
-# --- TAB 2: FOOD INFO ---
 with tab_food:
-    st.header("Grocery Price Index & VAT Calculator")
+    st.header("🛒 All Items Price Comparison")
     
-    # Static 2026 Market Data
-    st.write("### Weekly Staples Comparison (Average SEK)")
-    food_data = {
-        "Product": ["Milk (1.5L)", "Butter (500g)", "Bread (Loaf)", "Coffee (450g)"],
-        "Willys": [16.50, 48.90, 24.00, 52.00],
-        "ICA": [17.90, 54.90, 28.50, 59.00],
-        "Coop": [18.20, 56.00, 29.00, 62.00]
+    # 1. Expandable Master List of Items (The "Database")
+    # You can keep adding items to this list!
+    data = {
+        "Category": ["Dairy", "Dairy", "Dairy", "Pantry", "Pantry", "Pantry", "Bakery", "Bakery", "Meat", "Meat", "Produce", "Produce"],
+        "Item": ["Mjölk (1.5L)", "Smör (500g)", "Prästost (1kg)", "Pasta (1kg)", "Kaffe (450g)", "Havregryn (1.5kg)", "Frallor (4-pack)", "Knäckebröd (500g)", "Nötfärs (500g)", "Kycklingfilé (1kg)", "Gurka (st)", "Tomater (1kg)"],
+        "Willys": [16.50, 48.90, 99.00, 19.90, 52.00, 14.90, 18.00, 12.50, 55.00, 115.00, 11.90, 24.90],
+        "ICA": [17.90, 54.90, 115.00, 22.50, 59.00, 16.50, 22.00, 15.50, 62.00, 129.00, 14.50, 29.90],
+        "Coop": [18.20, 56.00, 119.00, 24.00, 62.00, 17.00, 21.50, 16.00, 65.00, 135.00, 15.00, 32.00]
     }
-    st.table(pd.DataFrame(food_data))
     
-    st.divider()
+    df_food = pd.DataFrame(data)
+
+    # 2. The Search & Filter System
+    col1, col2 = st.columns([2, 1])
+    with col1:
+        search_query = st.text_input("🔍 Search for an item (e.g. 'Milk' or 'Pasta')", "")
+    with col2:
+        category_filter = st.selectbox("Filter by Category", ["All"] + list(df_food["Category"].unique()))
+
+    # Apply Filters
+    filtered_df = df_food.copy()
+    if search_query:
+        filtered_df = filtered_df[filtered_df["Item"].str.contains(search_query, case=False)]
+    if category_filter != "All":
+        filtered_df = filtered_df[filtered_df["Category"] == category_filter]
+
+    # 3. Display the Data
+    st.write(f"Showing **{len(filtered_df)}** items:")
     
-    # 2026 VAT Calculator
-    st.subheader("💰 2026 VAT Relief Calculator")
-    st.info("The Swedish government is reducing food VAT from 12% to 6% on April 1st, 2026.")
-    user_bill = st.number_input("Enter your current grocery bill (SEK):", value=1000.0)
-    
-    # Math: Removing 12% VAT and adding 6% VAT
-    price_no_vat = user_bill / 1.12
-    new_price = price_no_vat * 1.06
-    savings = user_bill - new_price
-    
-    st.metric(label="New Price After April 1st", value=f"{new_price:.2f} SEK", delta=f"-{savings:.2f} SEK")
+    # Highlight the cheapest store for each row
+    def highlight_cheapest(s):
+        # Only look at columns with store prices
+        stores = ["Willys", "ICA", "Coop"]
+        is_min = s[stores] == s[stores].min()
+        return ['background-color: #ccffcc' if is_min.get(col, False) else '' for col in s.index]
+
+    st.dataframe(
+        filtered_df.style.apply(highlight_cheapest, axis=1),
+        use_container_width=True,
+        hide_index=True
+    )
+
+    st.caption("Green highlights indicate the cheapest store for that specific item.")
