@@ -1,37 +1,44 @@
 import streamlit as st
 import requests
 import pandas as pd
-from bs4 import BeautifulSoup
 from datetime import datetime
 
-# Function to scrape live Petrol price (Example: OKQ8)
-@st.cache_data(ttl=21600) # Refresh fuel price every 6 hours
-def get_dynamic_petrol_price():
-    try:
-        url = "https://www.okq8.se/pa-stationen/drivmedel/priser/"
-        headers = {"User-Agent": "Mozilla/5.0"}
-        res = requests.get(url, headers=headers)
-        soup = BeautifulSoup(res.text, "html.parser")
-        # Finds the E10 price on the page
-        price_text = soup.find(text="GoEasy Bensin 95").find_next("span").text
-        return float(price_text.replace(",", "."))
-    except:
-        return 15.14 # Fallback to Jan 2026 average
+st.title("⚡ Energy & Fuel Comparison")
 
-st.title("⚡ Dynamic Energy Tracker")
-
-live_petrol = get_dynamic_petrol_price()
+# --- 1. SETTINGS ---
 region = st.sidebar.selectbox("Region", ["SE1", "SE2", "SE3", "SE4"], index=2)
+petrol_price = st.sidebar.number_input("E10 Petrol (kr/L)", value=15.14)
 
-st.sidebar.metric("Live E10 Price", f"{live_petrol} SEK/L")
-
-# Electricity Logic (Same as before but uses 'live_petrol')
-date_path = datetime.now().strftime('%Y/%m-%d')
-el_url = f"https://www.elprisetjustnu.se/api/v1/prices/{date_path}_{region}.json"
+# --- 2. DYNAMIC FETCHING WITH BACKUP ---
+date_str = datetime.now().strftime('%Y/%m-%d')
+url = f"https://www.elprisetjustnu.se/api/v1/prices/{date_str}_{region}.json"
 
 try:
-    res = requests.get(el_url).json()
-    # ... (Rest of your calculation logic using live_petrol)
-    st.success(f"Fetched live prices for {datetime.now().strftime('%H:%M')}")
-except:
-    st.error("API Error")
+    response = requests.get(url, timeout=10)
+    data = response.json()
+    
+    # CHECK: Is the data actually there?
+    if not data or len(data) == 0:
+        st.warning("⚠️ API returned empty data for today. Showing estimated prices.")
+        # Create dummy data so the app doesn't look broken
+        data = [{"time_start": "2026-01-30T12:00:00", "SEK_per_kWh": 1.20}]
+
+    rows = []
+    for item in data[::4]:  # Skip by 4 to show hourly even with 15-min data
+        el_price = item.get('SEK_per_kWh', 0)
+        cost_ev = round(el_price * 2.0, 2)
+        cost_gas = round(petrol_price * 0.65, 2)
+        
+        rows.append({
+            "Time": item['time_start'][11:16],
+            "Electricity (kr/kWh)": el_price,
+            "EV Cost /10km": f"{cost_ev} kr",
+            "Petrol Cost /10km": f"{cost_gas} kr",
+            "Winner": "⚡ Electric" if cost_ev < cost_gas else "⛽ Petrol"
+        })
+
+    st.dataframe(pd.DataFrame(rows), use_container_width=True)
+
+except Exception as e:
+    st.error(f"📡 Connection Error: {e}")
+    st.info("The electricity API might be down. Please try refreshing in 5 minutes.")
